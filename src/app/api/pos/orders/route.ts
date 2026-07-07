@@ -71,6 +71,9 @@ export async function POST(request: Request) {
       totalAmount += item.totalPrice;
     });
 
+    const isOnline = source === 'ONLINE';
+    const paymentStatus = isOnline ? 'PENDING' : 'PAID';
+
     const result = await runWithDatabaseFallback(
       async () => {
         // --- REAL TRANSACTION IN POSTGRESQL ---
@@ -83,8 +86,6 @@ export async function POST(request: Request) {
           const taxAmount = (totalAmount - discountAmount) * taxRate;
           const finalAmount = totalAmount - discountAmount + taxAmount;
           const pointsEarned = Math.floor(totalAmount * 10);
-          const isOnline = source === 'ONLINE';
-          const paymentStatus = isOnline ? 'PENDING' : 'PAID';
 
           // 2. Generate Order Serial number
           const today = new Date();
@@ -244,8 +245,6 @@ export async function POST(request: Request) {
         const taxAmount = (totalAmount - discountAmount) * taxRate;
         const finalAmount = totalAmount - discountAmount + taxAmount;
         const pointsEarned = Math.floor(totalAmount * 10);
-        const isOnline = source === 'ONLINE';
-        const paymentStatus = isOnline ? 'PENDING' : 'PAID';
 
         const newMockOrder = {
           id: `mock-order-${Date.now()}`,
