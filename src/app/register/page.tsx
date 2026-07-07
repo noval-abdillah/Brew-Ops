@@ -89,12 +89,12 @@ export default function RegisterPage() {
             {/* Registration Form Locked Overlay */}
             <div className="p-6 bg-amber-500/10 border border-amber-500/30 rounded-2xl flex flex-col items-center text-center gap-3 animate-fade-in mb-4">
               <AlertCircle className="w-10 h-10 text-amber-500 animate-bounce" />
-              <h3 className="font-bold text-sm text-amber-500">Registrasi Cafe Ditangguhkan</h3>
+              <h3 className="font-bold text-sm text-amber-500">Cafe Registration Suspended</h3>
               <p className="text-xs text-stone-300 leading-relaxed">
-                Sistem registrasi saat ini sedang dalam pemeliharaan (maintenance) karena database offline. Silakan masuk menggunakan akun demo pengujian yang telah disediakan di halaman login.
+                The registration system is currently under maintenance because the database is offline. Please sign in using the provided demo testing accounts on the login page.
               </p>
               <Link href="/login" className="mt-2 px-4 py-2 bg-stone-900 border border-stone-800 hover:border-amber-600/30 rounded-xl text-xs font-semibold text-stone-300 transition-all">
-                Kembali ke Halaman Login
+                Back to Login Page
               </Link>
             </div>
           </>

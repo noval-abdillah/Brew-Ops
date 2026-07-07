@@ -342,7 +342,7 @@ export default function SettingsPanel() {
                       onChange={(e) => setPaymentCash(e.target.checked)}
                       className="w-3.5 h-3.5 text-amber-600 border-border rounded focus:ring-amber-600"
                     />
-                    <span className="text-[10px] font-medium">Cash (Tunai)</span>
+                    <span className="text-[10px] font-medium">Cash</span>
                   </label>
 
                   <label className="flex items-center gap-2 p-2 bg-white dark:bg-stone-950/40 border border-border rounded-xl cursor-pointer select-none">
