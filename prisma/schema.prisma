@@ -1,0 +1,429 @@
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  OWNER
+  MANAGER
+  STAFF
+}
+
+enum OrderStatus {
+  PENDING
+  PREPARING
+  COMPLETED
+  CANCELLED
+}
+
+enum OrderSource {
+  POS
+  ONLINE
+}
+
+enum PaymentMethod {
+  CASH
+  CARD
+  DIGITAL
+  SPLIT
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  REFUNDED
+}
+
+enum LogType {
+  DEDUCTION_ORDER
+  RESTOCK
+  ADJUSTMENT
+}
+
+enum POStatus {
+  PENDING
+  RECEIVED
+  CANCELLED
+}
+
+enum ShiftStatus {
+  ACTIVE
+  COMPLETED
+}
+
+enum InsightType {
+  SALES
+  INVENTORY
+  BUSINESS
+}
+
+// ---------------------------------------------------------
+// 1. MULTI-TENANT (COFFEE SHOPS)
+// ---------------------------------------------------------
+model Tenant {
+  id            String   @id @default(uuid())
+  name          String
+  slug          String   @unique
+  logoUrl       String?
+  address       String?
+  phone         String?
+  taxRate       Float    @default(0.10) // e.g. 10% VAT
+  currency      String   @default("USD") // e.g. USD, EUR, IDR
+  paymentConfig Json?    // JSON for QR Codes, digital payment credentials
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  users          User[]
+  customers      Customer[]
+  suppliers      Supplier[]
+  ingredients    Ingredient[]
+  products       Product[]
+  orders         Order[]
+  inventoryLogs  InventoryLog[]
+  purchaseOrders PurchaseOrder[]
+  shifts         Shift[]
+  notifications  Notification[]
+  aiInsights     AIInsight[]
+
+  @@index([slug])
+}
+
+// ---------------------------------------------------------
+// 2. USERS & STAFF
+// ---------------------------------------------------------
+model User {
+  id           String   @id @default(uuid())
+  tenantId     String
+  email        String   @unique
+  passwordHash String
+  name         String
+  role         Role     @default(STAFF)
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  orders        Order[]
+  inventoryLogs InventoryLog[]
+  shifts        Shift[]
+
+  @@index([tenantId])
+}
+
+// ---------------------------------------------------------
+// 3. CUSTOMERS & LOYALTY
+// ---------------------------------------------------------
+model Customer {
+  id            String   @id @default(uuid())
+  tenantId      String
+  name          String
+  email         String?
+  phone         String?
+  loyaltyPoints Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  tenant Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  orders Order[]
+
+  @@unique([tenantId, phone])
+  @@index([tenantId])
+}
+
+// ---------------------------------------------------------
+// 4. SUPPLIERS
+// ---------------------------------------------------------
+model Supplier {
+  id          String   @id @default(uuid())
+  tenantId    String
+  name        String
+  contactName String?
+  email       String?
+  phone       String?
+  address     String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  ingredients    Ingredient[]
+  purchaseOrders PurchaseOrder[]
+
+  @@index([tenantId])
+}
+
+// ---------------------------------------------------------
+// 5. INVENTORY & INGREDIENTS
+// ---------------------------------------------------------
+model Ingredient {
+  id            String   @id @default(uuid())
+  tenantId      String
+  supplierId    String?
+  name          String
+  sku           String?
+  unit          String   // e.g. "g", "ml", "pcs", "bags"
+  currentStock  Float    @default(0)
+  minStockLevel Float    @default(10) // Triggers low stock alert
+  costPerUnit   Float    @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  tenant            Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  supplier          Supplier?           @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  recipeIngredients ProductIngredient[]
+  inventoryLogs     InventoryLog[]
+  modifierOptions   ModifierOption[]
+
+  @@unique([tenantId, sku])
+  @@index([tenantId])
+}
+
+// ---------------------------------------------------------
+// 6. MENU PRODUCTS & MODIFIERS
+// ---------------------------------------------------------
+model Product {
+  id          String   @id @default(uuid())
+  tenantId    String
+  name        String
+  description String?
+  price       Float
+  cost        Float    @default(0) // Raw ingredient cost for profit tracking
+  category    String   // "Coffee", "Tea", "Pastry", "Merch", etc.
+  imageUrl    String?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant            Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  recipeIngredients ProductIngredient[]
+  modifiers         ProductModifier[]
+  orderItems        OrderItem[]
+
+  @@index([tenantId])
+}
+
+model ProductModifier {
+  id             String   @id @default(uuid())
+  productId      String
+  name           String   // e.g. "Milk Option", "Size", "Syrup Addon"
+  required       Boolean  @default(false)
+  minSelections  Int      @default(0)
+  maxSelections  Int      @default(1)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  product Product          @relation(fields: [productId], references: [id], onDelete: Cascade)
+  options ModifierOption[]
+
+  @@index([productId])
+}
+
+model ModifierOption {
+  id               String   @id @default(uuid())
+  modifierId       String
+  name             String   // e.g. "Oat Milk", "Large", "Vanilla Shot"
+  priceAdjustment  Float    @default(0)
+  costAdjustment   Float    @default(0)
+  
+  // Link to inventory for auto-deduction (e.g. Oat Milk option deducts 200ml Oat Milk)
+  deductIngredientId String?
+  deductQuantity     Float?   // quantity to deduct
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  modifier         ProductModifier @relation(fields: [modifierId], references: [id], onDelete: Cascade)
+  deductIngredient Ingredient?     @relation(fields: [deductIngredientId], references: [id], onDelete: SetNull)
+
+  @@index([modifierId])
+}
+
+model ProductIngredient {
+  id           String @id @default(uuid())
+  productId    String
+  ingredientId String
+  quantity     Float  // amount required per product sale (e.g. 18g beans)
+
+  product    Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  ingredient Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, ingredientId])
+}
+
+// ---------------------------------------------------------
+// 7. ORDERS & TRANSACTIONS
+// ---------------------------------------------------------
+model Order {
+  id                  String      @id @default(uuid())
+  tenantId            String
+  userId              String
+  customerId          String?
+  orderNumber         String      // unique serial per day (e.g. #001)
+  source              OrderSource @default(POS)
+  status              OrderStatus @default(PENDING)
+  totalAmount         Float
+  discountAmount      Float       @default(0)
+  taxAmount           Float
+  finalAmount         Float
+  paymentMethod       PaymentMethod @default(CASH)
+  paymentStatus       PaymentStatus @default(PENDING)
+  tableNumber         String?
+  loyaltyPointsEarned Int         @default(0)
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  processedBy  User          @relation(fields: [userId], references: [id])
+  customer     Customer?     @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  orderItems   OrderItem[]
+  transactions Transaction[]
+
+  @@index([tenantId])
+  @@index([createdAt])
+}
+
+model OrderItem {
+  id         String   @id @default(uuid())
+  orderId    String
+  productId  String
+  quantity   Int
+  unitPrice  Float
+  totalPrice Float
+  notes      String?
+
+  order   Order               @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product             @relation(fields: [productId], references: [id])
+  options OrderItemModifier[]
+
+  @@index([orderId])
+}
+
+model OrderItemModifier {
+  id              String @id @default(uuid())
+  orderItemId     String
+  optionName      String // e.g. "Oat Milk"
+  priceAdjustment Float  @default(0)
+
+  orderItem OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+
+  @@index([orderItemId])
+}
+
+model Transaction {
+  id            String        @id @default(uuid())
+  orderId       String
+  paymentMethod PaymentMethod
+  amount        Float
+  referenceId   String?       // E.g. QR Transaction ID or Card Approval Code
+  createdAt     DateTime      @default(now())
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+}
+
+// ---------------------------------------------------------
+// 8. INVENTORY LOGS & PURCHASE ORDERS
+// ---------------------------------------------------------
+model InventoryLog {
+  id           String   @id @default(uuid())
+  tenantId     String
+  ingredientId String
+  userId       String
+  type         LogType
+  quantity     Float    // Negative for deductions, positive for restocks
+  reason       String?  // E.g. "Order #1234 deduction", "Manual inventory adjustment"
+  createdAt    DateTime @default(now())
+
+  tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  ingredient Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+  adjustedBy User       @relation(fields: [userId], references: [id])
+
+  @@index([tenantId])
+  @@index([ingredientId])
+}
+
+model PurchaseOrder {
+  id          String    @id @default(uuid())
+  tenantId    String
+  supplierId  String
+  status      POStatus  @default(PENDING)
+  totalCost   Float
+  receivedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  tenant   Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  supplier Supplier            @relation(fields: [supplierId], references: [id])
+  items    PurchaseOrderItem[]
+
+  @@index([tenantId])
+}
+
+model PurchaseOrderItem {
+  id              String @id @default(uuid())
+  purchaseOrderId String
+  name            String // ingredient name or supplier item name
+  quantity        Float
+  unitCost        Float
+
+  purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+
+  @@index([purchaseOrderId])
+}
+
+// ---------------------------------------------------------
+// 9. SHIFTS (STAFF MANAGEMENT)
+// ---------------------------------------------------------
+model Shift {
+  id             String      @id @default(uuid())
+  tenantId       String
+  userId         String
+  startTime      DateTime    @default(now())
+  endTime        DateTime?
+  status         ShiftStatus @default(ACTIVE)
+  salesGenerated Float       @default(0)
+  ordersHandled  Int         @default(0)
+  createdAt      DateTime    @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  staff  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([userId])
+}
+
+// ---------------------------------------------------------
+// 10. NOTIFICATIONS
+// ---------------------------------------------------------
+model Notification {
+  id        String   @id @default(uuid())
+  tenantId  String
+  type      String   // "LOW_STOCK", "SALES", "SYSTEM"
+  message   String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+}
+
+// ---------------------------------------------------------
+// 11. AI INSIGHTS
+// ---------------------------------------------------------
+model AIInsight {
+  id          String      @id @default(uuid())
+  tenantId    String
+  type        InsightType
+  content     Json        // JSON object containing title, details, recommendedAction, priority
+  generatedAt DateTime    @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+}
